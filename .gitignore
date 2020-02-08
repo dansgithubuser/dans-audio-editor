@@ -1,0 +1,7 @@
+*.flac
+*.ogg
+*.wav
+
+*.pyc
+
+*.edit

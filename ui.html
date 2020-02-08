@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Dan's Audio Editor</title>
+  </head>
+  <body>
+    <input id='original-file-path' placeholder='original file path' onchange='originalFilePathChanged()' size=80><br>
+    <input id='edit-file-path' placeholder='edit file path' onchange='editFilePathChanged()' size=80>
+    <div>
+      <h2>sections</h2>
+      <form onsubmit='sectionAdd(event)'>
+        start
+        <input id='section-start-h'  type='number' min=0 max=999 placeholder='h'>
+        <input id='section-start-m'  type='number' min=0 max=999 placeholder='m'>
+        <input id='section-start-s'  type='number' min=0 max=999 placeholder='s'>
+        <input id='section-start-ms' type='number' min=0 max=999 placeholder='ms'>
+        &emsp;
+        end
+        <input id='section-end-h'    type='number' min=0 max=999 placeholder='h'>
+        <input id='section-end-m'    type='number' min=0 max=999 placeholder='m'>
+        <input id='section-end-s'    type='number' min=0 max=999 placeholder='s'>
+        <input id='section-end-ms'   type='number' min=0 max=999 placeholder='ms'>
+        &emsp;
+        <input id='section-name' placeholder='name'>
+        <input type='submit' value='add'>
+      </form>
+      <div id='sections' style='display: flex; flex-wrap: wrap'></div>
+    </div>
+    <div>
+      <h2>order</h2>
+      <form onsubmit='orderAdd(event)'>
+        <input id='order-name' placeholder='name'>
+        <input id='order-before' type='number' min=0 placeholder='insert before'>
+        <input type='submit' value='add'>
+      </form>
+      <div id='order' style='display: flex; flex-wrap: wrap'></div>
+    </div>
+    <div style='display: inline-block'>
+      <h2>final</h2>
+      <input type='button' value='render' onclick='render()' style='width: 100%'><br>
+      <audio id='final-audio' controls>
+        <source id='final-source' type='audio/wav'>
+      </audio>
+    </div>
+    <div style='display: none'>
+      <h2>templates</h2>
+      <div id='section-template' style='background-color: lightgrey; margin: 1em;'>
+        <span id='start'></span>&ensp;-&ensp;<span id='end'></span><br>
+        <span id='name'></span>
+      </div>
+      <div id='order-template' style='background-color: lightgrey; margin: 1em;'>
+        <span id='index'></span><br>
+        <span id='name'></span>
+      </div>
+    </div>
+    <style>
+
+* {
+  font-family: 'Courier New';
+}
+
+    </style>
+    <script>
+
+let gEdit;
+
+function e(id) {
+  return document.getElementById(id);
+}
+
+function v(id) {
+  return e(id).value;
+}
+
+function request(op, path, ...args) {
+  if (gEdit) path = gEdit + '.' + path;
+  let method = 'GET';
+  if (['store', 'eval', 'get', 'unstore'].includes(op)) method = 'POST';
+  return fetch(`http://localhost:8000/${op}/${path}`, {
+    method,
+    body: JSON.stringify([args]),
+  }).then(response => response.json());
+}
+
+async function requestAndSave(op, path, ...args) {
+  const result = await request(op, path, ...args);
+  await request('eval', 'save', v('edit-file-path'));
+  return result;
+}
+
+async function originalFilePathChanged() {
+  e('original-file-path').disabled = true;
+  gEdit = await request('store', 'Edit', v('original-file-path'));
+}
+
+async function editFilePathChanged() {
+  e('original-file-path').disabled = true;
+  gEdit = await request('store', 'Edit', null, v('edit-file-path'));
+  const {
+    original_file_path,
+    sections,
+    order,
+  } = JSON.parse(await request('get', 'to_json'));
+  e('original-file-path').value = original_file_path;
+  for (const name in sections) {
+    const start = sections[name].start;
+    const end   = sections[name].end;
+    const toString = (seconds) => {
+      let h  = Math.floor(seconds / 3600).toString().padStart(2, '0'); seconds -= h * 3600;
+      let m  = Math.floor(seconds /   60).toString().padStart(2, '0'); seconds -= m *   60;
+      let s  = Math.floor(seconds /    1).toString().padStart(2, '0'); seconds -= s *    1;
+      let ms = Math.floor(seconds * 1000).toString().padStart(3, '0');
+      return `${h}:${m}:${s}.${ms}`;
+    }
+    sectionAddUpdateUi(toString(start), toString(end), name);
+  }
+  for (const name of order) orderAddUpdateUi(name);
+}
+
+async function sectionAdd(event) {
+  event.preventDefault();
+  const startH  = v('section-start-h' ).padStart(2, '0');
+  const startM  = v('section-start-m' ).padStart(2, '0');
+  const startS  = v('section-start-s' ).padStart(2, '0');
+  const startMs = v('section-start-ms').padStart(3, '0');
+  const endH    = v('section-end-h'   ).padStart(2, '0');
+  const endM    = v('section-end-m'   ).padStart(2, '0');
+  const endS    = v('section-end-s'   ).padStart(2, '0');
+  const endMs   = v('section-end-ms'  ).padStart(3, '0');
+  const name    = v('section-name');
+  const start = startH * 3600 + startM * 60 + startS * 1 + startMs / 1000;
+  const end   = endH   * 3600 + endM   * 60 + endS   * 1 + endMs   / 1000;
+  if (start >= end) {
+    alert('Section start must come before end!');
+    return;
+  }
+  if (!name) {
+    alert('Section must have a name!');
+    return;
+  }
+  await requestAndSave('eval', 'add_section', start, end, name);
+  sectionAddUpdateUi(
+    `${startH}:${startM}:${startS}.${startMs}`,
+    `${endH  }:${endM  }:${endS  }.${endMs  }`,
+    name,
+  );
+}
+
+function sectionAddUpdateUi(start, end, name) {
+  const section = document.createElement('div');
+  section.style.cssText = e('section-template').style.cssText;
+  section.innerHTML     = e('section-template').innerHTML;
+  section.querySelector('#start').innerText = start;
+  section.querySelector('#end')  .innerText = end;
+  section.querySelector('#name') .innerText = name;
+  e('sections').appendChild(section);
+}
+
+async function orderAdd(event) {
+  event.preventDefault();
+  const name   = v('order-name');
+  const before = v('order-before');
+  await requestAndSave('eval', 'add_order', name, parseInt(before));
+  orderAddUpdateUi(name, before);
+}
+
+function orderAddUpdateUi(name, before) {
+  const order = document.createElement('div');
+  order.style.cssText = e('order-template').style.cssText;
+  order.innerHTML     = e('order-template').innerHTML;
+  order.querySelector('#name').innerText = name;
+  if (!before && parseInt(before) != 0)
+    e('order').appendChild(order);
+  else
+    e('order').insertBefore(order, e('order').children[before]);
+  for (let i = 0; i < e('order').children.length; ++i)
+    e('order').children[i].querySelector('#index').innerText = i;
+}
+
+async function render() {
+  await request('eval', 'render_delete');
+  const timestamp = (new Date()).toISOString().replace(/:/g, '-');
+  const fileName = `final-${timestamp}.wav`;
+  await request('eval', 'render', fileName);
+  e('final-source').setAttribute('src', fileName);
+  e('final-audio').load();
+}
+
+    </script>
+  </body>
+</html>
