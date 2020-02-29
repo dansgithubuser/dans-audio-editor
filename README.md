@@ -19,6 +19,12 @@ Some nice-to-haves:
 - common filtering, such as compression
 
 ## usage
+### setup
+- `git clone --recurse-submodules`
+- `cd dans-audio-editor`
+- `pip install -r requirements.txt`
+- `cd ..`
+
 ### run
 - `python dans-audio-editor` to start the server
 - open `ui.html` in a browser
